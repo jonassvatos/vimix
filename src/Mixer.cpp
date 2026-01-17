@@ -46,6 +46,7 @@
 #include "Source/MediaSource.h"
 #include "Source/PatternSource.h"
 #include "Source/DeviceSource.h"
+#include "Source/DeckLinkSource.h"
 #include "Source/ScreenCaptureSource.h"
 #include "Source/MultiFileSource.h"
 #include "Source/StreamSource.h"
@@ -399,6 +400,18 @@ Source * Mixer::createSourceDevice(const std::string &namedevice)
 
     // propose a new name based on pattern name
     s->setName( namedevice.substr(0, namedevice.find(" ")) );
+
+    return s;
+}
+
+Source * Mixer::createSourceDeckLink(int device_number, int mode_number, int connection)
+{
+    // ready to create a source
+    DeckLinkSource *s = new DeckLinkSource;
+    s->setDevice(device_number, mode_number, connection);
+
+    // propose a new name based on device
+    s->setName( "DeckLink" + std::to_string(device_number) );
 
     return s;
 }

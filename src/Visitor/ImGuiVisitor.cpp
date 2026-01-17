@@ -49,6 +49,7 @@
 #include "Source/SessionSource.h"
 #include "Source/PatternSource.h"
 #include "Source/DeviceSource.h"
+#include "Source/DeckLinkSource.h"
 #include "Source/ScreenCaptureSource.h"
 #include "Source/NetworkSource.h"
 #include "Source/SrtReceiverSource.h"
@@ -1704,6 +1705,107 @@ void ImGuiVisitor::visit (DeviceSource& s)
 
 }
 
+void ImGuiVisitor::visit (DeckLinkSource& s)
+{
+    ImVec2 top = ImGui::GetCursorPos();
+    top.x = 0.5f * ImGui::GetFrameHeight() + ImGui::GetContentRegionAvail().x IMGUI_RIGHT_ALIGN;
+
+    ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + ImGui::GetContentRegionAvail().x IMGUI_RIGHT_ALIGN);
+    s.accept(info);
+    ImGui::Text("%s", info.str().c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+
+    if ( !s.failed() ) {
+
+        // Device selection
+        int device_number = s.deviceNumber();
+        ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
+        if (ImGui::BeginCombo("Device", s.deviceName().c_str()))
+        {
+            for (int d = 0; d < DeckLink::manager().numDevices(); ++d) {
+                std::string namedev = DeckLink::manager().name(d);
+                if (ImGui::Selectable( namedev.c_str(), d == DeckLink::manager().index(device_number) )) {
+                    // Find the device number for this index
+                    int new_device = d; // assuming device numbers match indices
+                    s.setDevice(new_device, s.modeNumber(), s.connection());
+                    info.reset();
+                    oss << "DeckLink " << namedev;
+                    Action::manager().store(oss.str());
+                    // ensure all sources are updated after the texture change of this one
+                    Mixer::manager().session()->execute([](Source *so) { so->touch(Source::SourceUpdate_Mask); });
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        // Mode selection
+        ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
+        if (ImGui::BeginCombo("Mode", DeckLink::modeName(s.modeNumber()).c_str()))
+        {
+            for (int m = 0; m < DeckLink::numModes(); ++m) {
+                DeckLinkMode mode = DeckLink::mode(m);
+                float fps = static_cast<float>(mode.fps_numerator) / static_cast<float>(mode.fps_denominator);
+                char modelabel[64];
+                snprintf(modelabel, sizeof(modelabel), "%s (%dx%d @ %.2ffps)",
+                         mode.name.c_str(), mode.width, mode.height, fps);
+                if (ImGui::Selectable( modelabel, m == s.modeNumber() )) {
+                    s.setDevice(s.deviceNumber(), m, s.connection());
+                    info.reset();
+                    oss << "DeckLink mode " << mode.name;
+                    Action::manager().store(oss.str());
+                    Mixer::manager().session()->execute([](Source *so) { so->touch(Source::SourceUpdate_Mask); });
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        // Connection selection
+        ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
+        if (ImGui::BeginCombo("Connection", DeckLink::connectionName(s.connection()).c_str()))
+        {
+            for (int c = 0; c < DeckLink::numConnections(); ++c) {
+                if (ImGui::Selectable( DeckLink::connectionName(c).c_str(), c == s.connection() )) {
+                    s.setDevice(s.deviceNumber(), s.modeNumber(), c);
+                    info.reset();
+                    oss << "DeckLink connection " << DeckLink::connectionName(c);
+                    Action::manager().store(oss.str());
+                    Mixer::manager().session()->execute([](Source *so) { so->touch(Source::SourceUpdate_Mask); });
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        ImVec2 botom = ImGui::GetCursorPos();
+
+        // icon (>) to open player
+        if ( s.playable() ) {
+            ImGui::SetCursorPos(top);
+            std::string msg = s.playing() ? "Open Player\n(source is playing)" : "Open Player\n(source is paused)";
+            if (ImGuiToolkit::IconButton( s.playing() ? ICON_FA_PLAY_CIRCLE : ICON_FA_PAUSE_CIRCLE, msg.c_str()))
+                UserInterface::manager().showSourceEditor(&s);
+            top.x += ImGui::GetFrameHeight();
+        }
+
+        // icon to show gstreamer properties
+        ImGui::SetCursorPos(top);
+        ImGuiToolkit::Icon(16, 16, false);
+        if (ImGui::IsItemHovered()) {
+            int index = DeckLink::manager().index( s.deviceNumber() );
+            std::string prop = DeckLink::manager().properties( index );
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 14.0f);
+            ImGui::TextUnformatted( prop.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
+
+        ImGui::SetCursorPos(botom);
+    }
+    else {
+        info.reset();
+    }
+}
 
 void ImGuiVisitor::visit (ScreenCaptureSource& s)
 {

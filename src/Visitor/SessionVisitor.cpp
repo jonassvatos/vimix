@@ -37,6 +37,7 @@ using namespace tinyxml2;
 #include "Source/SessionSource.h"
 #include "Source/PatternSource.h"
 #include "Source/DeviceSource.h"
+#include "Source/DeckLinkSource.h"
 #include "Source/ScreenCaptureSource.h"
 #include "Source/NetworkSource.h"
 #include "Source/SrtReceiverSource.h"
@@ -961,6 +962,14 @@ void SessionVisitor::visit (DeviceSource& s)
 {
     xmlCurrent_->SetAttribute("type", "DeviceSource");
     xmlCurrent_->SetAttribute("device", s.device().c_str() );
+}
+
+void SessionVisitor::visit (DeckLinkSource& s)
+{
+    xmlCurrent_->SetAttribute("type", "DeckLinkSource");
+    xmlCurrent_->SetAttribute("device_number", s.deviceNumber());
+    xmlCurrent_->SetAttribute("mode_number", s.modeNumber());
+    xmlCurrent_->SetAttribute("connection", s.connection());
 }
 
 void SessionVisitor::visit (ScreenCaptureSource& s)

@@ -35,6 +35,7 @@
 #include "Source/StreamSource.h"
 #include "Source/PatternSource.h"
 #include "Source/DeviceSource.h"
+#include "Source/DeckLinkSource.h"
 #include "Source/ScreenCaptureSource.h"
 #include "Source/NetworkSource.h"
 #include "Source/SrtReceiverSource.h"
@@ -437,6 +438,9 @@ void SessionLoader::load(XMLElement *sessionNode)
                 }
                 else if ( std::string(pType) == "DeviceSource") {
                     load_source = new DeviceSource(id_xml_);
+                }
+                else if ( std::string(pType) == "DeckLinkSource") {
+                    load_source = new DeckLinkSource(id_xml_);
                 }
                 else if ( std::string(pType) == "ScreenCaptureSource") {
                     load_source = new ScreenCaptureSource(id_xml_);
@@ -1402,6 +1406,20 @@ void SessionLoader::visit (DeviceSource& s)
         s.setDevice(devname);
 }
 
+void SessionLoader::visit (DeckLinkSource& s)
+{
+    int device_number = 0;
+    int mode_number = 16;  // default 1080p50
+    int connection = 0;    // auto
+
+    xmlCurrent_->QueryIntAttribute("device_number", &device_number);
+    xmlCurrent_->QueryIntAttribute("mode_number", &mode_number);
+    xmlCurrent_->QueryIntAttribute("connection", &connection);
+
+    // change only if different settings
+    if ( device_number != s.deviceNumber() || mode_number != s.modeNumber() || connection != s.connection() )
+        s.setDevice(device_number, mode_number, connection);
+}
 
 void SessionLoader::visit (ScreenCaptureSource& s)
 {

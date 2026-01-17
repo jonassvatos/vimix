@@ -35,6 +35,7 @@
 #include "Source/SessionSource.h"
 #include "Source/PatternSource.h"
 #include "Source/DeviceSource.h"
+#include "Source/DeckLinkSource.h"
 #include "Source/ScreenCaptureSource.h"
 #include "Source/NetworkSource.h"
 #include "Source/SrtReceiverSource.h"
@@ -321,6 +322,32 @@ void InfoVisitor::visit (DeviceSource& s)
     current_id_ = s.id();
 }
 
+void InfoVisitor::visit (DeckLinkSource& s)
+{
+    if (current_id_ == s.id())
+        return;
+
+    std::ostringstream oss;
+
+    DeckLinkMode mode = DeckLink::mode(s.modeNumber());
+    float fps = static_cast<float>(mode.fps_numerator) / static_cast<float>(mode.fps_denominator);
+
+    if (brief_) {
+        oss << "video/x-raw, ";
+        oss << mode.width << " x " << mode.height << ", ";
+        oss << std::fixed << std::setprecision(0) << fps << "fps";
+    }
+    else {
+        oss << s.deviceName() << std::endl;
+        oss << "Mode: " << mode.name << std::endl;
+        oss << mode.width << " x " << mode.height << ", ";
+        oss << std::fixed << std::setprecision(1) << fps << " fps" << std::endl;
+        oss << "Connection: " << DeckLink::connectionName(s.connection());
+    }
+
+    information_ = oss.str();
+    current_id_ = s.id();
+}
 
 void InfoVisitor::visit (ScreenCaptureSource& s)
 {

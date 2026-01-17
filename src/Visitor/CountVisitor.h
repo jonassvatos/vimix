@@ -31,6 +31,7 @@ public:
     void visit (CloneSource& s) override;
     void visit (PatternSource& s) override;
     void visit (DeviceSource& s) override;
+    void visit (DeckLinkSource& s) override;
     void visit (NetworkSource& s) override;
     void visit (MultiFileSource& s) override;
     void visit (GenericStreamSource& s) override;

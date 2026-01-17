@@ -61,6 +61,10 @@ class Navigator
     int  generated_type;
     bool custom_connected;
     bool custom_screencapture;
+    bool custom_decklink;
+    int  decklink_device_;
+    int  decklink_mode_;
+    int  decklink_connection_;
     void clearButtonSelection();
     void clearNewPannel();
     void applyButtonSelection(int index);
