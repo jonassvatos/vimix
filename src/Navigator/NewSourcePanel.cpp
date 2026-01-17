@@ -40,6 +40,7 @@
 #include "Source/MultiFileSource.h"
 #include "Source/PatternSource.h"
 #include "Source/DeviceSource.h"
+#include "Source/DeckLinkSource.h"
 #include "Source/ScreenCaptureSource.h"
 #include "Source/RenderSource.h"
 #include "Source/SourceCallback.h"
@@ -74,7 +75,8 @@ static std::string mediaFilesType()
 }
 
 NewSourcePanel::NewSourcePanel() : new_media_mode(MEDIA_RECENT), new_media_mode_changed(true),
-    pattern_type(-1), generated_type(-1), custom_type(-1)
+    pattern_type(-1), generated_type(-1), custom_type(-1),
+    decklink_device_(0), decklink_mode_(16), decklink_connection_(0)
 {
 }
 
@@ -84,6 +86,9 @@ void NewSourcePanel::clearNewPannel()
     pattern_type = -1;
     generated_type = -1;
     custom_type = -1;
+    decklink_device_ = 0;
+    decklink_mode_ = 16;      // default 1080p50
+    decklink_connection_ = 0; // auto
     sourceImageFiles.clear();
     sourceVideoFiles.clear();
     sourceMediaFileCurrent.clear();
@@ -778,6 +783,11 @@ void NewSourcePanel::Render(Navigator *navigator, const ImVec2 &iconsize)
                 if (new_source_preview_.filled())
                     current_connection = new_source_preview_.label();
             }
+            else if (custom_type == 4) {
+                current_connection = DeckLink::manager().name(decklink_device_);
+                if (new_source_preview_.filled())
+                    current_connection = new_source_preview_.label();
+            }
             else
                 current_connection = "Select";
 
@@ -812,7 +822,19 @@ void NewSourcePanel::Render(Navigator *navigator, const ImVec2 &iconsize)
                     }
                 }
 
-                // 5. Network connected vimix
+                // 5. Blackmagic DeckLink devices (configured below)
+                if (DeckLink::available()) {
+                    for (int d = 0; d < DeckLink::manager().numDevices(); ++d){
+                        std::string namedev = DeckLink::manager().name(d);
+                        if (ImGuiToolkit::SelectableIcon(ICON_VI_SOURCE_DECKLINK, namedev.c_str(), false)) {
+                            custom_type = 4;
+                            decklink_device_ = d;
+                            new_source_preview_.setSource();
+                        }
+                    }
+                }
+
+                // 6. Network connected vimix
                 for (int d = 1; d < Connection::manager().numHosts(); ++d){
                     std::string namehost = Connection::manager().info(d).name;
                     if (ImGui::Selectable( namehost.c_str() )) {
@@ -832,10 +854,12 @@ void NewSourcePanel::Render(Navigator *navigator, const ImVec2 &iconsize)
                                       ICON_FA_CARET_RIGHT " Screen capture\n"
                                       ICON_FA_CARET_RIGHT " Network SRT broadcast.\n"
                                       ICON_FA_CARET_RIGHT " Webcams or frame grabbers\n"
+                                      ICON_FA_CARET_RIGHT " Blackmagic DeckLink devices\n"
                                       ICON_FA_CARET_RIGHT " Peer-to-peer in local network");
             ImGui::SameLine();
             if (ImGuiToolkit::IconButton(ICON_VI_RELOAD, "Reload list")) {
                 Device::manager().reload();
+                DeckLink::manager().reload();
                 clearNewPannel();
             }
             ImGui::Spacing();
@@ -916,6 +940,64 @@ void NewSourcePanel::Render(Navigator *navigator, const ImVec2 &iconsize)
                 }
 
                 ImGui::PopStyleColor(3);
+            }
+
+            if (custom_type==4) {
+
+                // Device selection
+                ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
+                if (ImGui::BeginCombo("##DeckLinkDevice", DeckLink::manager().name(decklink_device_).c_str()))
+                {
+                    for (int d = 0; d < DeckLink::manager().numDevices(); ++d) {
+                        if (ImGui::Selectable( DeckLink::manager().name(d).c_str(), d == decklink_device_ ))
+                            decklink_device_ = d;
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                ImGui::SetCursorPosX(pos.x);
+                ImGui::Text("Device");
+
+                // Mode selection
+                ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
+                if (ImGui::BeginCombo("##DeckLinkMode", DeckLink::modeName(decklink_mode_).c_str(), ImGuiComboFlags_HeightLarge))
+                {
+                    for (int m = 0; m < DeckLink::numModes(); ++m) {
+                        DeckLinkMode mode = DeckLink::mode(m);
+                        float fps = static_cast<float>(mode.fps_numerator) / static_cast<float>(mode.fps_denominator);
+                        char label[64];
+                        snprintf(label, sizeof(label), "%s (%dx%d @ %.2ffps)",
+                                 mode.name.c_str(), mode.width, mode.height, fps);
+                        if (ImGui::Selectable( label, m == decklink_mode_ ))
+                            decklink_mode_ = m;
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                ImGui::SetCursorPosX(pos.x);
+                ImGui::Text("Mode");
+
+                // Connection selection
+                ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
+                if (ImGui::BeginCombo("##DeckLinkConnection", DeckLink::connectionName(decklink_connection_).c_str()))
+                {
+                    for (int c = 0; c < DeckLink::numConnections(); ++c) {
+                        if (ImGui::Selectable( DeckLink::connectionName(c).c_str(), c == decklink_connection_ ))
+                            decklink_connection_ = c;
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                ImGui::SetCursorPosX(pos.x);
+                ImGui::Text("Input");
+
+                // create the DeckLink source with the selected parameters
+                if ( ImGui::Button("Connect", ImVec2(IMGUI_RIGHT_ALIGN, 0)) ) {
+                    std::string name = DeckLink::manager().name(decklink_device_);
+                    new_source_preview_.setSource(
+                        Mixer::manager().createSourceDeckLink(decklink_device_, decklink_mode_, decklink_connection_),
+                        name);
+                }
             }
 
             if (custom_type==1) {

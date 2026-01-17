@@ -138,6 +138,7 @@
 #define SOURCE_TYPE_TEXT "TextSource"
 #define SOURCE_TYPE_SHADER "ShaderSource"
 #define SOURCE_TYPE_DEVICE "DeviceSource"
+#define SOURCE_TYPE_DECKLINK "DeckLinkSource"
 #define SOURCE_TYPE_SCREEN_CAPTURE "ScreenCaptureSource"
 #define SOURCE_TYPE_NETWORK "NetworkSource"
 #define SOURCE_TYPE_MULTI_FILE "MultiFileSource"
