@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <sstream>
+#include <thread>
+#include <chrono>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <gst/gst.h>
