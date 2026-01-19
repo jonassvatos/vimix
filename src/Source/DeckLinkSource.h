@@ -82,8 +82,8 @@ struct DeckLinkHandle {
 
 // Mode presets for DeckLink devices
 struct DeckLinkMode {
-    int mode_number;
-    std::string name;
+    std::string gst_mode;  // GStreamer mode name (e.g., "1080p60")
+    std::string name;      // Display name
     int width;
     int height;
     int fps_numerator;

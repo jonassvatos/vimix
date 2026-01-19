@@ -45,49 +45,49 @@ void DeckLink::initModes()
     if (!modes_.empty())
         return;
 
-    // Common DeckLink modes - based on GStreamer decklink plugin modes
-    // Mode numbers correspond to BMDDisplayMode enum values
+    // Common DeckLink modes - GStreamer mode names from gst-inspect-1.0 decklinkvideosrc
+    // Format: { gst_mode, display_name, width, height, fps_num, fps_den }
     modes_ = {
-        // NTSC formats
-        { 0,  "NTSC",          720,  486,  30000, 1001 },
-        { 1,  "NTSC 2398",     720,  486,  24000, 1001 },
-        { 2,  "PAL",           720,  576,  25,    1    },
-        { 3,  "NTSC-P",        720,  486,  30000, 1001 },
-        { 4,  "PAL-P",         720,  576,  25,    1    },
+        // SD formats
+        { "ntsc",       "NTSC",           720,  486,  30000, 1001 },
+        { "ntsc2398",   "NTSC 23.98",     720,  486,  24000, 1001 },
+        { "pal",        "PAL",            720,  576,  25,    1    },
+        { "ntsc-p",     "NTSC-P",         720,  486,  30000, 1001 },
+        { "pal-p",      "PAL-P",          720,  576,  25,    1    },
         // HD 720 formats
-        { 5,  "HD 720p50",     1280, 720,  50,    1    },
-        { 6,  "HD 720p5994",   1280, 720,  60000, 1001 },
-        { 7,  "HD 720p60",     1280, 720,  60,    1    },
+        { "720p50",     "720p 50",        1280, 720,  50,    1    },
+        { "720p5994",   "720p 59.94",     1280, 720,  60000, 1001 },
+        { "720p60",     "720p 60",        1280, 720,  60,    1    },
         // HD 1080 interlaced formats
-        { 8,  "HD 1080i50",    1920, 1080, 25,    1    },
-        { 9,  "HD 1080i5994",  1920, 1080, 30000, 1001 },
-        { 10, "HD 1080i60",    1920, 1080, 30,    1    },
+        { "1080i50",    "1080i 50",       1920, 1080, 25,    1    },
+        { "1080i5994",  "1080i 59.94",    1920, 1080, 30000, 1001 },
+        { "1080i60",    "1080i 60",       1920, 1080, 30,    1    },
         // HD 1080 progressive formats
-        { 11, "HD 1080p2398",  1920, 1080, 24000, 1001 },
-        { 12, "HD 1080p24",    1920, 1080, 24,    1    },
-        { 13, "HD 1080p25",    1920, 1080, 25,    1    },
-        { 14, "HD 1080p2997",  1920, 1080, 30000, 1001 },
-        { 15, "HD 1080p30",    1920, 1080, 30,    1    },
-        { 16, "HD 1080p50",    1920, 1080, 50,    1    },
-        { 17, "HD 1080p5994",  1920, 1080, 60000, 1001 },
-        { 18, "HD 1080p60",    1920, 1080, 60,    1    },
-        // 2K formats
-        { 19, "2K DCI 2398",   2048, 1080, 24000, 1001 },
-        { 20, "2K DCI 24",     2048, 1080, 24,    1    },
-        { 21, "2K DCI 25",     2048, 1080, 25,    1    },
+        { "1080p2398",  "1080p 23.98",    1920, 1080, 24000, 1001 },
+        { "1080p24",    "1080p 24",       1920, 1080, 24,    1    },
+        { "1080p25",    "1080p 25",       1920, 1080, 25,    1    },
+        { "1080p2997",  "1080p 29.97",    1920, 1080, 30000, 1001 },
+        { "1080p30",    "1080p 30",       1920, 1080, 30,    1    },
+        { "1080p50",    "1080p 50",       1920, 1080, 50,    1    },
+        { "1080p5994",  "1080p 59.94",    1920, 1080, 60000, 1001 },
+        { "1080p60",    "1080p 60",       1920, 1080, 60,    1    },
+        // 2K DCI formats
+        { "2kdcip2398", "2K DCI 23.98",   2048, 1080, 24000, 1001 },
+        { "2kdcip24",   "2K DCI 24",      2048, 1080, 24,    1    },
+        { "2kdcip25",   "2K DCI 25",      2048, 1080, 25,    1    },
         // 4K UHD formats
-        { 22, "4K UHD 2398",   3840, 2160, 24000, 1001 },
-        { 23, "4K UHD 24",     3840, 2160, 24,    1    },
-        { 24, "4K UHD 25",     3840, 2160, 25,    1    },
-        { 25, "4K UHD 2997",   3840, 2160, 30000, 1001 },
-        { 26, "4K UHD 30",     3840, 2160, 30,    1    },
-        { 27, "4K UHD 50",     3840, 2160, 50,    1    },
-        { 28, "4K UHD 5994",   3840, 2160, 60000, 1001 },
-        { 29, "4K UHD 60",     3840, 2160, 60,    1    },
+        { "2160p2398",  "4K UHD 23.98",   3840, 2160, 24000, 1001 },
+        { "2160p24",    "4K UHD 24",      3840, 2160, 24,    1    },
+        { "2160p25",    "4K UHD 25",      3840, 2160, 25,    1    },
+        { "2160p2997",  "4K UHD 29.97",   3840, 2160, 30000, 1001 },
+        { "2160p30",    "4K UHD 30",      3840, 2160, 30,    1    },
+        { "2160p50",    "4K UHD 50",      3840, 2160, 50,    1    },
+        { "2160p5994",  "4K UHD 59.94",   3840, 2160, 60000, 1001 },
+        { "2160p60",    "4K UHD 60",      3840, 2160, 60,    1    },
         // 4K DCI formats
-        { 30, "4K DCI 2398",   4096, 2160, 24000, 1001 },
-        { 31, "4K DCI 24",     4096, 2160, 24,    1    },
-        { 32, "4K DCI 25",     4096, 2160, 25,    1    },
+        { "4kdcip2398", "4K DCI 23.98",   4096, 2160, 24000, 1001 },
+        { "4kdcip24",   "4K DCI 24",      4096, 2160, 24,    1    },
+        { "4kdcip25",   "4K DCI 25",      4096, 2160, 25,    1    },
     };
 }
 
@@ -185,7 +185,7 @@ void DeckLink::probe()
 
         // Create a test pipeline to check if device exists
         std::ostringstream pipeline;
-        pipeline << "decklinkvideosrc device-number=" << device_num << " mode=16"; // mode 16 = 1080p50
+        pipeline << "decklinkvideosrc device-number=" << device_num << " mode=1080p50";
 
         GstToolkit::PipelineConfigSet confs = GstToolkit::getPipelineConfigs(pipeline.str());
 
@@ -431,13 +431,12 @@ void DeckLinkSource::setDevice(int device_number, int mode_number, int connectio
             // Get mode information
             DeckLinkMode m = DeckLink::mode(mode_number_);
 
-            // Build GStreamer pipeline
+            // Build GStreamer pipeline using string mode name
             std::ostringstream pipeline;
             pipeline << "decklinkvideosrc device-number=" << device_number_;
-            pipeline << " mode=" << mode_number_;
+            pipeline << " mode=" << m.gst_mode;
             pipeline << " connection=" << connection_;
-            pipeline << " ! video/x-raw";
-            pipeline << ",width=" << m.width;
+            pipeline << " ! video/x-raw,format=UYVY,width=" << m.width;
             pipeline << ",height=" << m.height;
             pipeline << ",framerate=" << m.fps_numerator << "/" << m.fps_denominator;
             pipeline << " ! queue ! videoconvert";
