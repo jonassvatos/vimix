@@ -67,6 +67,8 @@ class SourceControlWindow : public WorkspaceWindow
 
     // dialog to select frame capture location
     DialogToolkit::OpenFolderDialog *captureFolderDialog;
+    // dialog to select recording location
+    DialogToolkit::OpenFolderDialog *recordFolderDialog;
     Screenshot capture;
 
 public:

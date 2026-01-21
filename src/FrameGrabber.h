@@ -28,6 +28,7 @@
 class FrameGrabber
 {
     friend class FrameGrabbing;
+    friend class SourceRecordingManager;
 
     uint64_t id_;
 

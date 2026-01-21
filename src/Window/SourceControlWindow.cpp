@@ -46,6 +46,8 @@
 #include "MediaPlayer.h"
 #include "ActionManager.h"
 #include "UserInterfaceManager.h"
+#include "SourceRecording.h"
+#include "FrameGrabbing.h"
 
 #include "SourceControlWindow.h"
 
@@ -106,6 +108,7 @@ SourceControlWindow::SourceControlWindow() : WorkspaceWindow("SourceController")
     info_.setExtendedStringMode();
 
     captureFolderDialog = new DialogToolkit::OpenFolderDialog("Capture frame Location");
+    recordFolderDialog = new DialogToolkit::OpenFolderDialog("Recording Location");
 
     // initialize checkerboard background texture
     checker_background_->open("videotestsrc name=bgchecker pattern=checkers-8 ! "
@@ -211,6 +214,13 @@ void SourceControlWindow::Update()
     if (captureFolderDialog->closed() && !captureFolderDialog->path().empty())
         // get the folder from this file dialog
         Settings::application.source.capture_path = captureFolderDialog->path();
+
+    //
+    // return from thread for selecting recording folder
+    //
+    if (recordFolderDialog->closed() && !recordFolderDialog->path().empty())
+        // get the folder from this file dialog
+        Settings::application.record.path = recordFolderDialog->path();
 
     //
     // Capture frame on current selection
@@ -383,21 +393,142 @@ void SourceControlWindow::Render()
         }
 
         //
-        // Menu for capture frame
+        // Menu for capture frame and recording
         //
         if ( ImGui::BeginMenu(ICON_FA_ARROW_ALT_CIRCLE_DOWN "  Capture", selection_.size() == 1 ) )
         {
+            Source *s = selection_.front();
+
+            // Frame capture (PNG)
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(IMGUI_COLOR_CAPTURE, 0.8f));
             if (ImGui::MenuItem( MENU_CAPTUREFRAME, "F10" ))
                 capture_request_ = true;
             ImGui::PopStyleColor(1);
 
-            // separator and hack for extending menu width
+            // Source video recording
             ImGui::Separator();
-            ImGui::MenuItem("Settings ", nullptr, false, false);
+            bool is_recording = SourceRecordingManager::manager().isRecording(s->id());
+
+            if (is_recording) {
+                // Stop recording
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(IMGUI_COLOR_RECORD, 0.8f));
+                if (ImGui::MenuItem(ICON_FA_STOP_CIRCLE "  Stop Recording")) {
+                    // prepare for next time user opens new source panel to show the recording
+                    if (Settings::application.recentRecordings.load_at_start)
+                        UserInterface::manager().navigator.setNewMedia(Navigator::MEDIA_RECORDING);
+                    SourceRecordingManager::manager().stopRecording(s->id());
+                }
+
+                // Pause/Resume recording
+                bool is_paused = SourceRecordingManager::manager().isPaused(s->id());
+                if (is_paused) {
+                    if (ImGui::MenuItem(ICON_FA_PAUSE_CIRCLE "  Resume Recording")) {
+                        SourceRecordingManager::manager().pauseRecording(s->id(), false);
+                    }
+                } else {
+                    if (ImGui::MenuItem(ICON_FA_PAUSE "  Pause Recording")) {
+                        SourceRecordingManager::manager().pauseRecording(s->id(), true);
+                    }
+                }
+                ImGui::PopStyleColor(1);
+
+                // Show recording info
+                ImGui::Separator();
+                FrameGrabber *recorder = SourceRecordingManager::manager().getRecorder(s->id());
+                if (recorder) {
+                    std::string info = recorder->info(true);
+                    ImGui::MenuItem(info.c_str(), nullptr, false, false);
+                }
+            }
+            // Start recording
+            else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(IMGUI_COLOR_RECORD, 0.9f));
+                if (ImGui::MenuItem(ICON_FA_CIRCLE "  Record Source")) {
+                    // Start recording with source name as basename
+                    std::string basename = s->name();
+                    if (basename.empty())
+                        basename = "source_" + std::to_string(s->id());
+                    SourceRecordingManager::manager().startRecording(s->id(), basename);
+                }
+                ImGui::PopStyleColor(1);
+            }
+
+            // Recording settings (only when not recording)
+            ImGui::Separator();
+            if (is_recording) {
+                // Show current settings as read-only when recording
+                FrameGrabber *recorder = SourceRecordingManager::manager().getRecorder(s->id());
+                if (recorder) {
+                    ImGui::Text("   Duration: %.1fs", recorder->duration() / 1000.0);
+                }
+            }
+            else {
+                ImGui::MenuItem("Recording Settings", nullptr, false, false);
+                float combo_width = ImGui::GetTextLineHeightWithSpacing() * 7.f;
+
+                // Path selection for recording
+                static char* rec_path[4] = { nullptr };
+                if ( rec_path[0] == nullptr ) {
+                    for (int i = 0; i < 4; ++i)
+                        rec_path[i] = (char *) malloc( 1024 * sizeof(char));
+                    snprintf( rec_path[1], 1024, "%s", ICON_FA_HOME " Home");
+                    snprintf( rec_path[2], 1024, "%s", ICON_FA_FOLDER " Session location");
+                    snprintf( rec_path[3], 1024, "%s", ICON_FA_FOLDER_PLUS " Select");
+                }
+                if (Settings::application.record.path.empty())
+                    Settings::application.record.path = SystemToolkit::home_path();
+                snprintf( rec_path[0], 1024, "%s", Settings::application.record.path.c_str());
+                int selected_path = 0;
+                ImGui::SetNextItemWidth(combo_width);
+                if (ImGui::Combo("##RecPath", &selected_path, rec_path, 4) ) {
+                    if (selected_path > 2)
+                        recordFolderDialog->open();
+                    else if (selected_path > 1)
+                        Settings::application.record.path = SystemToolkit::path_filename( Mixer::manager().session()->filename() );
+                    else if (selected_path > 0)
+                        Settings::application.record.path = SystemToolkit::home_path();
+                }
+                ImGui::SameLine(0, IMGUI_SAME_LINE);
+                if (ImGuiToolkit::TextButton("Path"))
+                    Settings::application.record.path = SystemToolkit::home_path();
+
+                // Open folder button
+                ImVec2 draw_pos = ImGui::GetCursorPos();
+                ImGui::SetCursorPos(draw_pos + ImVec2(combo_width + 3.f * ImGui::GetTextLineHeight(), -ImGui::GetFrameHeight()) );
+                if (ImGuiToolkit::IconButton(3, 5, "Show in finder"))
+                    SystemToolkit::open(Settings::application.record.path);
+                ImGui::SetCursorPos(draw_pos);
+
+                // Naming mode selection
+                static const char* naming_style[2] = { ICON_FA_SORT_NUMERIC_DOWN "  Sequential", ICON_FA_CALENDAR "  Date prefix" };
+                ImGui::SetNextItemWidth(combo_width);
+                ImGui::Combo("##RecFilename", &Settings::application.record.naming_mode, naming_style, IM_ARRAYSIZE(naming_style));
+                ImGui::SameLine(0, IMGUI_SAME_LINE);
+                if (ImGuiToolkit::TextButton("Filename"))
+                    Settings::application.record.naming_mode = 1;
+
+                // Duration setting
+                ImGui::SetNextItemWidth(combo_width);
+                ImGuiToolkit::SliderTiming ("##RecDuration", &Settings::application.record.timeout, 1000, RECORD_MAX_TIMEOUT, 1000, "Until stopped");
+                ImGui::SameLine(0, IMGUI_SAME_LINE);
+                if (ImGuiToolkit::TextButton("Duration"))
+                    Settings::application.record.timeout = RECORD_MAX_TIMEOUT;
+
+                // Trigger delay setting
+                ImGui::SetNextItemWidth(combo_width);
+                ImGui::SliderInt("##RecTrigger", &Settings::application.record.delay, 0, 5,
+                                 Settings::application.record.delay < 1 ? "Immediate" : "After %d s");
+                ImGui::SameLine(0, IMGUI_SAME_LINE);
+                if (ImGuiToolkit::TextButton("Trigger"))
+                    Settings::application.record.delay = 0;
+            }
+
+            // Frame capture settings (separate section)
+            ImGui::Separator();
+            ImGui::MenuItem("Frame Capture Settings", nullptr, false, false);
             float combo_width = ImGui::GetTextLineHeightWithSpacing() * 7.f;
 
-            // path menu selection
+            // path menu selection for frame capture
             static char* name_path[4] = { nullptr };
             if ( name_path[0] == nullptr ) {
                 for (int i = 0; i < 4; ++i)
@@ -409,12 +540,12 @@ void SourceControlWindow::Render()
             if (Settings::application.source.capture_path.empty())
                 Settings::application.source.capture_path = SystemToolkit::home_path();
             snprintf( name_path[0], 1024, "%s", Settings::application.source.capture_path.c_str());
-            int selected_path = 0;
+            int selected_capture_path = 0;
             ImGui::SetNextItemWidth(combo_width);
-            ImGui::Combo("##Path", &selected_path, name_path, 4);
-            if (selected_path > 2)
+            ImGui::Combo("##CapturePath", &selected_capture_path, name_path, 4);
+            if (selected_capture_path > 2)
                 captureFolderDialog->open();
-            else if (selected_path > 1) {
+            else if (selected_capture_path > 1) {
                 // file location of media player
                 if (mediaplayer_active_)
                     Settings::application.source.capture_path = SystemToolkit::path_filename( mediaplayer_active_->filename() );
@@ -422,10 +553,10 @@ void SourceControlWindow::Render()
                 else
                     Settings::application.source.capture_path = SystemToolkit::path_filename( Mixer::manager().session()->filename() );
             }
-            else if (selected_path > 0)
+            else if (selected_capture_path > 0)
                 Settings::application.source.capture_path = SystemToolkit::home_path();
             ImGui::SameLine(0, IMGUI_SAME_LINE);
-            if (ImGuiToolkit::TextButton("Path"))
+            if (ImGuiToolkit::TextButton("Path "))
                 Settings::application.source.capture_path = SystemToolkit::home_path();
 
             // offer to open folder location
@@ -436,11 +567,11 @@ void SourceControlWindow::Render()
             ImGui::SetCursorPos(draw_pos);
 
             // Naming menu selection
-            static const char* naming_style[2] = { ICON_FA_SORT_NUMERIC_DOWN "  Sequential", ICON_FA_CALENDAR "  Date prefix" };
+            static const char* capture_naming_style[2] = { ICON_FA_SORT_NUMERIC_DOWN "  Sequential", ICON_FA_CALENDAR "  Date prefix" };
             ImGui::SetNextItemWidth(combo_width);
-            ImGui::Combo("##Filename", &Settings::application.source.capture_naming, naming_style, IM_ARRAYSIZE(naming_style));
+            ImGui::Combo("##CaptureFilename", &Settings::application.source.capture_naming, capture_naming_style, IM_ARRAYSIZE(capture_naming_style));
             ImGui::SameLine(0, IMGUI_SAME_LINE);
-            if (ImGuiToolkit::TextButton("Filename"))
+            if (ImGuiToolkit::TextButton("Filename "))
                 Settings::application.source.capture_naming = 0;
 
             ImGui::EndMenu();

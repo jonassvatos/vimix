@@ -59,6 +59,7 @@
 #include "ActionManager.h"
 #include "MixingGroup.h"
 #include "FrameGrabbing.h"
+#include "SourceRecording.h"
 #include "Visitor/BoundingBoxVisitor.h"
 
 #include "Mixer.h"
@@ -211,6 +212,9 @@ void Mixer::update()
 
     // grab frames to recorders & streamers
     FrameGrabbing::manager().grabFrame(session_->frame(), static_cast<guint64>(dt__));
+
+    // grab frames from individual sources for per-source recording
+    SourceRecordingManager::manager().grabSourceFrames();
 
     // manage sources which failed update
     if (session_->ready()) {

@@ -31,6 +31,9 @@
 
 #include "FrameBuffer.h"
 #include "FrameGrabbing.h"
+#include "Mixer.h"
+#include "Source/Source.h"
+#include "Settings.h"
 
 
 FrameGrabbing::FrameGrabbing(): pbo_index_(0), pbo_next_index_(0), size_(0),

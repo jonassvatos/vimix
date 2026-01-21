@@ -562,6 +562,26 @@ void Source::render()
     }
 }
 
+void Source::renderWithMask(FrameBuffer *target)
+{
+    // Render the source with mask/blending effects applied to target framebuffer
+    // This is used by source recording to capture the final rendered appearance
+    // similar to how the session renders sources into the output framebuffer
+    if (!target || !rendersurface_ || !ready_)
+        return;
+
+    // Use the same projection calculation as RenderView::draw()
+    // This includes the aspect ratio scaling that ensures correct rendering
+    static glm::mat4 projection = glm::ortho(-1.f, 1.f, 1.f, -1.f, -SCENE_DEPTH, 1.f);
+    glm::mat4 P = glm::scale(projection, glm::vec3(1.f / target->aspectRatio(), 1.f, 1.f));
+
+    // Draw the rendersurface which uses blendingshader_ with mask texture
+    // This applies the mask in the fragment shader (image.fs)
+    target->begin();
+    rendersurface_->draw(glm::identity<glm::mat4>(), P);
+    target->end();
+}
+
 void Source::attach(FrameBuffer *renderbuffer)
 {
     // invalid argument

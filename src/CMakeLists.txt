@@ -34,6 +34,7 @@ set(VMIX_SRCS
     Overlay.cpp
     Playlist.cpp
     Recorder.cpp
+    SourceRecording.cpp
     RenderingManager.cpp
     Resource.cpp
     Screenshot.cpp

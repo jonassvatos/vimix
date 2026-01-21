@@ -210,6 +210,10 @@ public:
     // a Source shall define how to render into the frame buffer
     virtual void render ();
 
+    // Render the source with mask/effects applied to a target framebuffer
+    // Used for source recording to capture the final rendered appearance
+    void renderWithMask(FrameBuffer *target);
+
     // accept all kind of visitors
     virtual void accept (Visitor& v);
 
