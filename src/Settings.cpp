@@ -898,7 +898,7 @@ void Settings::History::remove(const std::string &filename)
 {
     if (filename.empty())
         return;
-    if (filenames.front() == filename)
+    if (!filenames.empty() && filenames.front() == filename)
         front_is_valid = false;
     filenames.remove(filename);
     changed = true;
