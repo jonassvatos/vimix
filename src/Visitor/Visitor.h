@@ -43,6 +43,7 @@ public:
     virtual void visit (class SrtReceiverSource&) {}
     virtual void visit (class GenericStreamSource&) {}
     virtual void visit (class DeviceSource&) {}
+    virtual void visit (class DeckLinkSource&) {}
     virtual void visit (class ScreenCaptureSource&) {}
     virtual void visit (class PatternSource&) {}
     virtual void visit (class SessionFileSource&) {}

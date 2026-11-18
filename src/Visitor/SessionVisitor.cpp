@@ -39,6 +39,7 @@ using namespace tinyxml2;
 #include "Source/SessionSource.h"
 #include "Source/PatternSource.h"
 #include "Source/DeviceSource.h"
+#include "Source/DeckLinkSource.h"
 #include "Source/ScreenCaptureSource.h"
 #include "Source/NetworkSource.h"
 #include "Source/SrtReceiverSource.h"
@@ -979,6 +980,17 @@ void SessionVisitor::visit (ShaderSource& s)
 void SessionVisitor::visit (DeviceSource& s)
 {
     xmlCurrent_->SetAttribute("device", s.device().c_str() );
+}
+
+void SessionVisitor::visit (DeckLinkSource& s)
+{
+    // input identified by its persistent id when available, otherwise by its number
+    if (s.persistentId() >= 0)
+        xmlCurrent_->SetAttribute("persistent_id", s.persistentId());
+    xmlCurrent_->SetAttribute("device_number", s.deviceNumber());
+    // video mode and connection by GStreamer names (e.g. "1080p50", "hdmi")
+    xmlCurrent_->SetAttribute("video_mode", s.videoMode().c_str());
+    xmlCurrent_->SetAttribute("connection", s.connection().c_str());
 }
 
 void SessionVisitor::visit (ScreenCaptureSource& s)

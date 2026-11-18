@@ -40,6 +40,7 @@
 #include "Source/StreamSource.h"
 #include "Source/PatternSource.h"
 #include "Source/DeviceSource.h"
+#include "Source/DeckLinkSource.h"
 #include "Source/ScreenCaptureSource.h"
 #include "Source/NetworkSource.h"
 #include "Source/SrtReceiverSource.h"
@@ -418,6 +419,8 @@ Source *SessionLoader::newSource(const std::string &type, uint64_t id)
         load_source = new PatternSource(id);
     else if ( type == SOURCE_TYPE_DEVICE)
         load_source = new DeviceSource(id);
+    else if ( type == SOURCE_TYPE_DECKLINK)
+        load_source = new DeckLinkSource(id);
     else if ( type == SOURCE_TYPE_SCREEN_CAPTURE)
         load_source = new ScreenCaptureSource(id);
     else if ( type == SOURCE_TYPE_NETWORK)
@@ -715,6 +718,9 @@ Source *SessionLoader::createSource(tinyxml2::XMLElement *sourceNode, Mode mode)
             }
             else if ( std::string(pType) == SOURCE_TYPE_DEVICE) {
                 load_source = new DeviceSource(id__);
+            }
+            else if ( std::string(pType) == SOURCE_TYPE_DECKLINK) {
+                load_source = new DeckLinkSource(id__);
             }
             else if ( std::string(pType) == SOURCE_TYPE_SCREEN_CAPTURE) {
                 load_source = new ScreenCaptureSource(id__);
@@ -1599,6 +1605,25 @@ void SessionLoader::visit (DeviceSource& s)
         s.setDevice(devname);
 }
 
+void SessionLoader::visit (DeckLinkSource& s)
+{
+    // input identified by its persistent id when available, otherwise by its number
+    int64_t persistent_id = -1;
+    int device_number = 0;
+    xmlCurrent_->QueryInt64Attribute("persistent_id", &persistent_id);
+    xmlCurrent_->QueryIntAttribute("device_number", &device_number);
+
+    // video mode and connection by GStreamer names (e.g. "1080p50", "hdmi")
+    const char *pMode = xmlCurrent_->Attribute("video_mode");
+    std::string video_mode = pMode ? pMode : DeckLink::default_mode;
+    const char *pConnection = xmlCurrent_->Attribute("connection");
+    std::string connection = pConnection ? pConnection : DeckLink::default_connection;
+
+    // change only if different settings
+    if ( persistent_id != s.persistentId() || device_number != s.deviceNumber()
+         || video_mode != s.videoMode() || connection != s.connection() )
+        s.setDevice(persistent_id, device_number, video_mode, connection);
+}
 
 void SessionLoader::visit (ScreenCaptureSource& s)
 {

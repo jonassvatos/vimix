@@ -26,6 +26,7 @@
 #include "Source/SessionSource.h"
 #include "Source/PatternSource.h"
 #include "Source/DeviceSource.h"
+#include "Source/DeckLinkSource.h"
 #include "Source/NetworkSource.h"
 #include "Source/SrtReceiverSource.h"
 #include "Source/MultiFileSource.h"
@@ -126,6 +127,13 @@ void CountVisitor::visit (PatternSource& s)
 }
 
 void CountVisitor::visit (DeviceSource& s)
+{
+    ++num_source_;
+    if (s.playable())
+        ++num_playable_;
+}
+
+void CountVisitor::visit (DeckLinkSource& s)
 {
     ++num_source_;
     if (s.playable())

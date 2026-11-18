@@ -75,6 +75,9 @@ private:
     int  pattern_type;
     int  generated_type;
     int  custom_type;
+    int  decklink_device_;
+    int  decklink_mode_;
+    int  decklink_connection_;
 };
 
 #endif /* NEWSOURCEPANEL_H */

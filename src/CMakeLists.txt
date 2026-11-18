@@ -82,6 +82,7 @@ set(VMIX_SRCS
 
     # Source/ folder
     Source/CloneSource.cpp
+    Source/DeckLinkSource.cpp
     Source/DraftSource.cpp
     Source/DeviceSource.cpp
     Source/MediaSource.cpp
