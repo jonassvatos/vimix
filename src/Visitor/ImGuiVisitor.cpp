@@ -2084,20 +2084,24 @@ void ImGuiVisitor::visit (DeckLinkSource& s)
 
     if ( !s.failed() ) {
 
-        // Device selection
-        int device_number = s.deviceNumber();
+        // Device selection (inputs are listed by the DeckLink manager,
+        // and identified by persistent id or device number, not by list index)
+        int current = DeckLink::manager().index(s.persistentId(), s.deviceNumber());
         ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
         if (ImGui::BeginCombo("Device", s.deviceName().c_str()))
         {
             for (int d = 0; d < DeckLink::manager().numDevices(); ++d) {
                 std::string namedev = DeckLink::manager().name(d);
-                if (ImGui::Selectable( namedev.c_str(), d == DeckLink::manager().index(device_number) )) {
-                    // Find the device number for this index
-                    int new_device = d; // assuming device numbers match indices
-                    s.setDevice(new_device, s.modeNumber(), s.connection());
-                    info.reset();
-                    oss << "DeckLink " << namedev;
-                    Action::manager().store(oss.str());
+                if (ImGui::Selectable( namedev.c_str(), d == current )) {
+                    if (d == current)
+                        s.reconnect();
+                    else {
+                        s.setDevice(DeckLink::manager().persistentId(d), DeckLink::manager().deviceNumber(d),
+                                    s.videoMode(), s.connection());
+                        info.reset();
+                        oss << "DeckLink " << namedev;
+                        Action::manager().store(oss.str());
+                    }
                     // ensure all sources are updated after the texture change of this one
                     Mixer::manager().session()->execute([](Source *so) { so->touch(Source::SourceUpdate_Mask); });
                 }
@@ -2105,20 +2109,25 @@ void ImGuiVisitor::visit (DeckLinkSource& s)
             ImGui::EndCombo();
         }
 
+        // One input carries one signal: video mode and connection
+        // can only be changed when no other source captures the same input
+        int sharing = s.sharingSources();
+        ImGuiToolkit::PushDisabled(sharing > 0);
+
         // Mode selection
         ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
-        if (ImGui::BeginCombo("Mode", DeckLink::modeName(s.modeNumber()).c_str()))
+        if (ImGui::BeginCombo("Mode", DeckLink::modeLabel(s.videoMode()).c_str(), ImGuiComboFlags_HeightLarge))
         {
             for (int m = 0; m < DeckLink::numModes(); ++m) {
                 DeckLinkMode mode = DeckLink::mode(m);
                 float fps = static_cast<float>(mode.fps_numerator) / static_cast<float>(mode.fps_denominator);
                 char modelabel[64];
                 snprintf(modelabel, sizeof(modelabel), "%s (%dx%d @ %.2ffps)",
-                         mode.name.c_str(), mode.width, mode.height, fps);
-                if (ImGui::Selectable( modelabel, m == s.modeNumber() )) {
-                    s.setDevice(s.deviceNumber(), m, s.connection());
+                         mode.label.c_str(), mode.width, mode.height, fps);
+                if (ImGui::Selectable( modelabel, mode.gst_name == s.videoMode() )) {
+                    s.setDevice(s.persistentId(), s.deviceNumber(), mode.gst_name, s.connection());
                     info.reset();
-                    oss << "DeckLink mode " << mode.name;
+                    oss << "DeckLink mode " << mode.label;
                     Action::manager().store(oss.str());
                     Mixer::manager().session()->execute([](Source *so) { so->touch(Source::SourceUpdate_Mask); });
                 }
@@ -2128,18 +2137,26 @@ void ImGuiVisitor::visit (DeckLinkSource& s)
 
         // Connection selection
         ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
-        if (ImGui::BeginCombo("Connection", DeckLink::connectionName(s.connection()).c_str()))
+        if (ImGui::BeginCombo("Connection", DeckLink::connectionLabel(s.connection()).c_str()))
         {
             for (int c = 0; c < DeckLink::numConnections(); ++c) {
-                if (ImGui::Selectable( DeckLink::connectionName(c).c_str(), c == s.connection() )) {
-                    s.setDevice(s.deviceNumber(), s.modeNumber(), c);
+                DeckLinkConnection connection = DeckLink::connection(c);
+                if (ImGui::Selectable( connection.label.c_str(), connection.gst_name == s.connection() )) {
+                    s.setDevice(s.persistentId(), s.deviceNumber(), s.videoMode(), connection.gst_name);
                     info.reset();
-                    oss << "DeckLink connection " << DeckLink::connectionName(c);
+                    oss << "DeckLink connection " << connection.label;
                     Action::manager().store(oss.str());
                     Mixer::manager().session()->execute([](Source *so) { so->touch(Source::SourceUpdate_Mask); });
                 }
             }
             ImGui::EndCombo();
+        }
+
+        ImGuiToolkit::PopDisabled(sharing > 0);
+        if (sharing > 0) {
+            ImGuiToolkit::PushFont(ImGuiToolkit::FONT_ITALIC);
+            ImGui::TextWrapped("Input shared with %d other source%s.", sharing, sharing > 1 ? "s" : "");
+            ImGui::PopFont();
         }
 
         ImVec2 botom = ImGui::GetCursorPos();
@@ -2161,7 +2178,7 @@ void ImGuiVisitor::visit (DeckLinkSource& s)
         ImGui::SetCursorPos(top);
         ImGuiToolkit::Icon(ICON_VI_SOURCE_GSTREAMER, false);
         if (ImGui::IsItemHovered()) {
-            int index = DeckLink::manager().index( s.deviceNumber() );
+            int index = DeckLink::manager().index( s.persistentId(), s.deviceNumber() );
             std::string prop = DeckLink::manager().properties( index );
             ImGui::BeginTooltip();
             ImGui::PushTextWrapPos(ImGui::GetFontSize() * 14.0f);

@@ -20,12 +20,29 @@
 #define DECKLINKSOURCE_H
 
 #include <string>
+#include <string_view>
 #include <vector>
+#include <list>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
+#include <cstdint>
 
-#include "Toolkit/GstToolkit.h"
 #include "StreamSource.h"
 
+/**
+ * @brief The DeckLinkSource class
+ *
+ * Captures the video input of a Blackmagic Design DeckLink card
+ * with the GStreamer 'decklinkvideosrc' element.
+ *
+ * An input is identified by its persistent id when the card provides one
+ * (stable across reboots and PCIe slots), otherwise by its device number.
+ * Video mode and connection are GStreamer names (e.g. "1080p50", "hdmi").
+ *
+ * One input carries one signal: all sources capturing the same input
+ * share its stream, and therefore its video mode and connection.
+ */
 class DeckLinkSource : public StreamSource
 {
     friend class DeckLink;
@@ -43,58 +60,64 @@ public:
     Stream *stream() const override { return stream_; }
 
     // specific interface
-    void setDevice(int device_number, int mode_number, int connection);
+    void setDevice(int64_t persistent_id, int device_number,
+                   const std::string &video_mode, const std::string &connection);
+    inline int64_t persistentId() const { return persistent_id_; }
     inline int deviceNumber() const { return device_number_; }
-    inline int modeNumber() const { return mode_number_; }
-    inline int connection() const { return connection_; }
+    inline std::string videoMode() const { return video_mode_; }
+    inline std::string connection() const { return connection_; }
     std::string deviceName() const;
+    // number of other sources capturing the same input
+    int sharingSources() const;
     void reconnect();
 
     glm::ivec2 icon() const override;
     std::string_view type() const override;
-    inline std::string info() const override;
+    std::string info() const override;
 
 protected:
     void unplug() { unplugged_ = true; }
 
 private:
+    int64_t persistent_id_;
     int device_number_;
-    int mode_number_;
-    int connection_;
+    std::string video_mode_;
+    std::string connection_;
     std::atomic<bool> unplugged_;
     void unsetDevice();
 };
 
 struct DeckLinkHandle {
+
+    int64_t persistent_id;     // -1 if not provided
     int device_number;
     std::string name;
-    std::string pipeline;
     std::string properties;
-    GstToolkit::PipelineConfigSet configs;
 
+    // settings of the open stream, shared by all connected sources
+    std::string video_mode;
+    std::string connection;
     Stream *stream;
     std::list<DeckLinkSource *> connected_sources;
 
-    DeckLinkHandle() {
-        device_number = 0;
-        stream = nullptr;
-    }
+    DeckLinkHandle() : persistent_id(-1), device_number(-1), stream(nullptr) {}
+    bool sameInput(int64_t pid, int number) const;
 };
 
-// Mode presets for DeckLink devices
+// Video modes of DeckLink inputs
 struct DeckLinkMode {
-    std::string gst_mode;  // GStreamer mode name (e.g., "1080p60")
-    std::string name;      // Display name
+    std::string gst_name;  // GStreamer mode name (e.g., "1080p60")
+    std::string label;     // Display name
     int width;
     int height;
     int fps_numerator;
     int fps_denominator;
 };
 
-// Connection types for DeckLink devices
+// Connection types of DeckLink inputs
 struct DeckLinkConnection {
-    int value;
-    std::string name;
+    std::string gst_name;  // GStreamer connection name (e.g., "hdmi")
+    std::string label;     // Display name
 };
 
 class DeckLink
@@ -114,38 +137,50 @@ public:
         return _instance;
     }
 
-    // device enumeration
-    int numDevices () ;
-    std::string name (int index) ;
-    std::string description (int index) ;
-    std::string properties (int index) ;
-    int  index  (int device_number);
-    bool exists (int device_number);
+    // list of DeckLink video inputs (empty until the first listing is done)
+    int numDevices ();
+    std::string name (int index);
+    std::string properties (int index);
+    int64_t persistentId (int index);
+    int deviceNumber (int index);
+    int index (int64_t persistent_id, int device_number);
+    // list inputs again, in background
     void reload ();
 
-    // mode enumeration
-    static int numModes();
-    static std::string modeName(int index);
-    static DeckLinkMode mode(int index);
+    // video modes, identified by their GStreamer name
+    static int numModes ();
+    static DeckLinkMode mode (int index);
+    static int modeIndex (const std::string &gst_name);
+    static std::string modeLabel (const std::string &gst_name);
+    static constexpr const char *default_mode = "1080p50";
 
-    // connection enumeration
-    static int numConnections();
-    static std::string connectionName(int index);
-    static int connectionValue(int index);
+    // connections, identified by their GStreamer name
+    static int numConnections ();
+    static DeckLinkConnection connection (int index);
+    static int connectionIndex (const std::string &gst_name);
+    static std::string connectionLabel (const std::string &gst_name);
+    static constexpr const char *default_connection = "auto";
 
     // check for decklink GStreamer plugin availability
-    static bool available();
+    static bool available ();
 
 private:
-    void probe();
+    static void launchProbe (DeckLink *d);
+    void probe ();
+    void waitInitialized ();
+    // NB: access_ must be locked
+    std::vector< DeckLinkHandle >::iterator find (int64_t persistent_id, int device_number);
+
     std::mutex access_;
     std::vector< DeckLinkHandle > handles_;
-    std::atomic<bool> initialized_;
 
-    static std::vector<DeckLinkMode> modes_;
-    static std::vector<DeckLinkConnection> connections_;
-    static void initModes();
-    static void initConnections();
+    std::atomic<bool> probing_;
+    std::mutex initialization_mutex_;
+    std::condition_variable initialization_;
+    bool initialized_;
+
+    static const std::vector<DeckLinkMode> &modes ();
+    static const std::vector<DeckLinkConnection> &connections ();
 };
 
 

@@ -507,14 +507,15 @@ Source * Mixer::createSourceDevice(const std::string &namedevice)
     return s;
 }
 
-Source * Mixer::createSourceDeckLink(int device_number, int mode_number, int connection)
+Source * Mixer::createSourceDeckLink(int64_t persistent_id, int device_number,
+                                     const std::string &video_mode, const std::string &connection)
 {
     // ready to create a source
     DeckLinkSource *s = new DeckLinkSource;
-    s->setDevice(device_number, mode_number, connection);
+    s->setDevice(persistent_id, device_number, video_mode, connection);
 
     // propose a new name based on device
-    s->setName( "DeckLink" + std::to_string(device_number) );
+    s->setName( "DeckLink" + std::to_string(s->deviceNumber()) );
 
     return s;
 }

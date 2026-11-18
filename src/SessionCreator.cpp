@@ -1607,17 +1607,22 @@ void SessionLoader::visit (DeviceSource& s)
 
 void SessionLoader::visit (DeckLinkSource& s)
 {
+    // input identified by its persistent id when available, otherwise by its number
+    int64_t persistent_id = -1;
     int device_number = 0;
-    int mode_number = 16;  // default 1080p50
-    int connection = 0;    // auto
-
+    xmlCurrent_->QueryInt64Attribute("persistent_id", &persistent_id);
     xmlCurrent_->QueryIntAttribute("device_number", &device_number);
-    xmlCurrent_->QueryIntAttribute("mode_number", &mode_number);
-    xmlCurrent_->QueryIntAttribute("connection", &connection);
+
+    // video mode and connection by GStreamer names (e.g. "1080p50", "hdmi")
+    const char *pMode = xmlCurrent_->Attribute("video_mode");
+    std::string video_mode = pMode ? pMode : DeckLink::default_mode;
+    const char *pConnection = xmlCurrent_->Attribute("connection");
+    std::string connection = pConnection ? pConnection : DeckLink::default_connection;
 
     // change only if different settings
-    if ( device_number != s.deviceNumber() || mode_number != s.modeNumber() || connection != s.connection() )
-        s.setDevice(device_number, mode_number, connection);
+    if ( persistent_id != s.persistentId() || device_number != s.deviceNumber()
+         || video_mode != s.videoMode() || connection != s.connection() )
+        s.setDevice(persistent_id, device_number, video_mode, connection);
 }
 
 void SessionLoader::visit (ScreenCaptureSource& s)

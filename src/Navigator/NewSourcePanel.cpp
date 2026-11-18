@@ -76,7 +76,8 @@ static std::string mediaFilesType()
 
 NewSourcePanel::NewSourcePanel() : new_media_mode(MEDIA_RECENT), new_media_mode_changed(true),
     pattern_type(-1), generated_type(-1), custom_type(-1),
-    decklink_device_(0), decklink_mode_(16), decklink_connection_(0)
+    decklink_device_(0), decklink_mode_(DeckLink::modeIndex(DeckLink::default_mode)),
+    decklink_connection_(DeckLink::connectionIndex(DeckLink::default_connection))
 {
 }
 
@@ -87,8 +88,8 @@ void NewSourcePanel::clearNewPannel()
     generated_type = -1;
     custom_type = -1;
     decklink_device_ = 0;
-    decklink_mode_ = 16;      // default 1080p50
-    decklink_connection_ = 0; // auto
+    decklink_mode_ = DeckLink::modeIndex(DeckLink::default_mode);
+    decklink_connection_ = DeckLink::connectionIndex(DeckLink::default_connection);
     sourceImageFiles.clear();
     sourceVideoFiles.clear();
     sourceMediaFileCurrent.clear();
@@ -960,14 +961,14 @@ void NewSourcePanel::Render(Navigator *navigator, const ImVec2 &iconsize)
 
                 // Mode selection
                 ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
-                if (ImGui::BeginCombo("##DeckLinkMode", DeckLink::modeName(decklink_mode_).c_str(), ImGuiComboFlags_HeightLarge))
+                if (ImGui::BeginCombo("##DeckLinkMode", DeckLink::mode(decklink_mode_).label.c_str(), ImGuiComboFlags_HeightLarge))
                 {
                     for (int m = 0; m < DeckLink::numModes(); ++m) {
                         DeckLinkMode mode = DeckLink::mode(m);
                         float fps = static_cast<float>(mode.fps_numerator) / static_cast<float>(mode.fps_denominator);
                         char label[64];
                         snprintf(label, sizeof(label), "%s (%dx%d @ %.2ffps)",
-                                 mode.name.c_str(), mode.width, mode.height, fps);
+                                 mode.label.c_str(), mode.width, mode.height, fps);
                         if (ImGui::Selectable( label, m == decklink_mode_ ))
                             decklink_mode_ = m;
                     }
@@ -979,10 +980,10 @@ void NewSourcePanel::Render(Navigator *navigator, const ImVec2 &iconsize)
 
                 // Connection selection
                 ImGui::SetNextItemWidth(IMGUI_RIGHT_ALIGN);
-                if (ImGui::BeginCombo("##DeckLinkConnection", DeckLink::connectionName(decklink_connection_).c_str()))
+                if (ImGui::BeginCombo("##DeckLinkConnection", DeckLink::connection(decklink_connection_).label.c_str()))
                 {
                     for (int c = 0; c < DeckLink::numConnections(); ++c) {
-                        if (ImGui::Selectable( DeckLink::connectionName(c).c_str(), c == decklink_connection_ ))
+                        if (ImGui::Selectable( DeckLink::connection(c).label.c_str(), c == decklink_connection_ ))
                             decklink_connection_ = c;
                     }
                     ImGui::EndCombo();
@@ -993,9 +994,13 @@ void NewSourcePanel::Render(Navigator *navigator, const ImVec2 &iconsize)
 
                 // create the DeckLink source with the selected parameters
                 if ( ImGui::Button("Connect", ImVec2(IMGUI_RIGHT_ALIGN, 0)) ) {
+                    // the input is identified by its persistent id or number, not by its index in the list
                     std::string name = DeckLink::manager().name(decklink_device_);
                     new_source_preview_.setSource(
-                        Mixer::manager().createSourceDeckLink(decklink_device_, decklink_mode_, decklink_connection_),
+                        Mixer::manager().createSourceDeckLink(DeckLink::manager().persistentId(decklink_device_),
+                                                              DeckLink::manager().deviceNumber(decklink_device_),
+                                                              DeckLink::mode(decklink_mode_).gst_name,
+                                                              DeckLink::connection(decklink_connection_).gst_name),
                         name);
                 }
             }

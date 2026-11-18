@@ -984,9 +984,13 @@ void SessionVisitor::visit (DeviceSource& s)
 
 void SessionVisitor::visit (DeckLinkSource& s)
 {
+    // input identified by its persistent id when available, otherwise by its number
+    if (s.persistentId() >= 0)
+        xmlCurrent_->SetAttribute("persistent_id", s.persistentId());
     xmlCurrent_->SetAttribute("device_number", s.deviceNumber());
-    xmlCurrent_->SetAttribute("mode_number", s.modeNumber());
-    xmlCurrent_->SetAttribute("connection", s.connection());
+    // video mode and connection by GStreamer names (e.g. "1080p50", "hdmi")
+    xmlCurrent_->SetAttribute("video_mode", s.videoMode().c_str());
+    xmlCurrent_->SetAttribute("connection", s.connection().c_str());
 }
 
 void SessionVisitor::visit (ScreenCaptureSource& s)

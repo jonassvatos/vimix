@@ -18,10 +18,10 @@
 **/
 
 #include <algorithm>
+#include <map>
 #include <sstream>
 #include <thread>
 #include <chrono>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <gst/gst.h>
 
@@ -29,6 +29,7 @@
 #include "Log.h"
 #include "Scene/Decorations.h"
 #include "Stream.h"
+#include "Toolkit/GstToolkit.h"
 #include "Visitor/Visitor.h"
 
 #include "DeckLinkSource.h"
@@ -37,18 +38,14 @@
 #define DECKLINK_DEBUG
 #endif
 
-// Static member initialization
-std::vector<DeckLinkMode> DeckLink::modes_;
-std::vector<DeckLinkConnection> DeckLink::connections_;
-
-void DeckLink::initModes()
+//
+// Video modes and connections, with the names of the GStreamer decklink plugin
+// (see 'gst-inspect-1.0 decklinkvideosrc')
+//
+const std::vector<DeckLinkMode> &DeckLink::modes()
 {
-    if (!modes_.empty())
-        return;
-
-    // Common DeckLink modes - GStreamer mode names from gst-inspect-1.0 decklinkvideosrc
-    // Format: { gst_mode, display_name, width, height, fps_num, fps_den }
-    modes_ = {
+    // { gst_name, label, width, height, fps_numerator, fps_denominator }
+    static const std::vector<DeckLinkMode> modes_ = {
         // SD formats
         { "ntsc",       "NTSC",           720,  486,  30000, 1001 },
         { "ntsc2398",   "NTSC 23.98",     720,  486,  24000, 1001 },
@@ -90,67 +87,77 @@ void DeckLink::initModes()
         { "4kdcip24",   "4K DCI 24",      4096, 2160, 24,    1    },
         { "4kdcip25",   "4K DCI 25",      4096, 2160, 25,    1    },
     };
+    return modes_;
 }
 
-void DeckLink::initConnections()
+const std::vector<DeckLinkConnection> &DeckLink::connections()
 {
-    if (!connections_.empty())
-        return;
-
-    // Connection types - based on GStreamer decklink plugin connection enum
-    connections_ = {
-        { 0, "Auto" },
-        { 1, "SDI" },
-        { 2, "HDMI" },
-        { 3, "Optical SDI" },
-        { 4, "Component" },
-        { 5, "Composite" },
-        { 6, "S-Video" },
+    static const std::vector<DeckLinkConnection> connections_ = {
+        { "auto",        "Auto" },
+        { "sdi",         "SDI" },
+        { "hdmi",        "HDMI" },
+        { "optical-sdi", "Optical SDI" },
+        { "component",   "Component" },
+        { "composite",   "Composite" },
+        { "svideo",      "S-Video" },
     };
+    return connections_;
 }
 
 int DeckLink::numModes()
 {
-    initModes();
-    return static_cast<int>(modes_.size());
+    return static_cast<int>(modes().size());
 }
 
-std::string DeckLink::modeName(int index)
+int DeckLink::modeIndex(const std::string &gst_name)
 {
-    initModes();
-    if (index >= 0 && index < static_cast<int>(modes_.size()))
-        return modes_[index].name;
-    return "";
+    const std::vector<DeckLinkMode> &m = modes();
+    for (size_t i = 0; i < m.size(); ++i) {
+        if (m[i].gst_name == gst_name)
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
 DeckLinkMode DeckLink::mode(int index)
 {
-    initModes();
-    if (index >= 0 && index < static_cast<int>(modes_.size()))
-        return modes_[index];
-    return { 0, "Unknown", 1920, 1080, 30, 1 };
+    if (index < 0 || index >= numModes())
+        index = modeIndex(default_mode);
+    return modes()[index];
+}
+
+std::string DeckLink::modeLabel(const std::string &gst_name)
+{
+    int i = modeIndex(gst_name);
+    return i < 0 ? gst_name : modes()[i].label;
 }
 
 int DeckLink::numConnections()
 {
-    initConnections();
-    return static_cast<int>(connections_.size());
+    return static_cast<int>(connections().size());
 }
 
-std::string DeckLink::connectionName(int index)
+int DeckLink::connectionIndex(const std::string &gst_name)
 {
-    initConnections();
-    if (index >= 0 && index < static_cast<int>(connections_.size()))
-        return connections_[index].name;
-    return "Auto";
+    const std::vector<DeckLinkConnection> &c = connections();
+    for (size_t i = 0; i < c.size(); ++i) {
+        if (c[i].gst_name == gst_name)
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
-int DeckLink::connectionValue(int index)
+DeckLinkConnection DeckLink::connection(int index)
 {
-    initConnections();
-    if (index >= 0 && index < static_cast<int>(connections_.size()))
-        return connections_[index].value;
-    return 0;
+    if (index < 0 || index >= numConnections())
+        index = connectionIndex(default_connection);
+    return connections()[index];
+}
+
+std::string DeckLink::connectionLabel(const std::string &gst_name)
+{
+    int i = connectionIndex(gst_name);
+    return i < 0 ? gst_name : connections()[i].label;
 }
 
 bool DeckLink::available()
@@ -158,176 +165,208 @@ bool DeckLink::available()
     return GstToolkit::has_feature("decklinkvideosrc");
 }
 
-DeckLink::DeckLink(): initialized_(false)
+//
+// List of DeckLink inputs
+//
+bool DeckLinkHandle::sameInput(int64_t pid, int number) const
 {
-    // Initialize modes and connections
-    initModes();
-    initConnections();
-
-    // Probe for devices
-    probe();
+    // the persistent id identifies an input whatever its device number
+    if (pid >= 0)
+        return persistent_id == pid;
+    return number >= 0 && device_number == number;
 }
 
-void DeckLink::probe()
+DeckLink::DeckLink(): probing_(true), initialized_(false)
 {
-    // Check if decklink plugin is available
-    if (!available()) {
-        Log::Info("Blackmagic DeckLink GStreamer plugin not available.");
-        initialized_.store(true);
-        return;
-    }
+    // list inputs in background: loading the DeckLink driver can take a while
+    std::thread(launchProbe, this).detach();
+}
 
-    // lock before change
-    access_.lock();
-    handles_.clear();
-
-    // Try to probe DeckLink devices (up to 8 devices)
-    for (int device_num = 0; device_num < 8; ++device_num) {
-
-        // Create a test pipeline to check if device exists
-        std::ostringstream pipeline;
-        pipeline << "decklinkvideosrc device-number=" << device_num << " mode=1080p50";
-
-        GstToolkit::PipelineConfigSet confs = GstToolkit::getPipelineConfigs(pipeline.str());
-
-        // If we get valid configs, the device exists
-        if (!confs.empty()) {
-            DeckLinkHandle dev;
-            dev.device_number = device_num;
-            dev.name = "DeckLink " + std::to_string(device_num);
-            dev.pipeline = "decklinkvideosrc device-number=" + std::to_string(device_num);
-            dev.configs = confs;
-
-            // Properties string for display
-            std::ostringstream props;
-            props << "DeckLink Device #" << device_num << std::endl;
-            props << "Driver: Blackmagic DeckLink" << std::endl;
-            dev.properties = props.str();
-
-#ifdef DECKLINK_DEBUG
-            Log::Info("Found DeckLink device %d", device_num);
-#endif
-            handles_.push_back(dev);
-        }
-        else {
-            // Stop probing when we don't find a device
-            break;
-        }
-    }
-
-    // unlock access
-    access_.unlock();
-
-    initialized_.store(true);
-
-    if (handles_.empty()) {
-        Log::Info("No Blackmagic DeckLink devices found.");
-    }
-    else {
-        Log::Info("Found %d Blackmagic DeckLink device(s).", (int)handles_.size());
-    }
+void DeckLink::launchProbe(DeckLink *d)
+{
+    d->probe();
 }
 
 void DeckLink::reload()
 {
-    probe();
+    // ignore if already listing inputs
+    bool expected = false;
+    if (probing_.compare_exchange_strong(expected, true))
+        std::thread(launchProbe, this).detach();
+}
+
+void DeckLink::probe()
+{
+    std::vector< DeckLinkHandle > inputs;
+    bool plugin = available();
+
+    if (plugin) {
+        // the DeckLink device provider lists inputs without opening them
+        GstDeviceProvider *provider = gst_device_provider_factory_get_by_name("decklinkdeviceprovider");
+        if (provider) {
+            GList *devices = gst_device_provider_get_devices(provider);
+            for (GList *it = devices; it != nullptr; it = it->next) {
+                GstDevice *device = GST_DEVICE(it->data);
+                if ( !gst_device_has_classes(device, "Video/Source") )
+                    continue;
+
+                GstStructure *props = gst_device_get_properties(device);
+                if (props == nullptr)
+                    continue;
+
+                DeckLinkHandle input;
+                guint number = 0;
+                if ( gst_structure_get_uint(props, "device-number", &number) )
+                    input.device_number = static_cast<int>(number);
+                gint64 pid = 0;
+                if ( gst_structure_get_int64(props, "persistent-id", &pid) )
+                    input.persistent_id = pid;
+                gboolean detection = FALSE;
+                gst_structure_get_boolean(props, "supports-format-detection", &detection);
+                const gchar *display = gst_structure_get_string(props, "display-name");
+                const gchar *model = gst_structure_get_string(props, "model-name");
+                const gchar *serial = gst_structure_get_string(props, "serial-number");
+
+                input.name = display ? display : (model ? model : "DeckLink");
+
+                std::ostringstream oss;
+                oss << "- DeckLink input -" << std::endl;
+                if (model)
+                    oss << "Model : " << model << std::endl;
+                if (serial)
+                    oss << "Serial : " << serial << std::endl;
+                oss << "Device number : " << input.device_number << std::endl;
+                if (input.persistent_id >= 0)
+                    oss << "Persistent id : " << input.persistent_id << std::endl;
+                oss << "Format detection : " << (detection ? "yes" : "no") << std::endl;
+                input.properties = oss.str();
+
+                gst_structure_free(props);
+
+                if (input.device_number >= 0)
+                    inputs.push_back(input);
+            }
+            g_list_free_full(devices, (GDestroyNotify) gst_object_unref);
+            gst_object_unref(provider);
+        }
+    }
+
+    // identical cards can have the same name: distinguish them with their device number
+    std::map<std::string, int> names;
+    for (const auto &i : inputs)
+        names[i.name]++;
+    for (auto &i : inputs) {
+        if (names[i.name] > 1)
+            i.name += " #" + std::to_string(i.device_number);
+    }
+
+    // replace the list of inputs, keeping those in use
+    access_.lock();
+    for (auto h = handles_.begin(); h != handles_.end(); ++h) {
+        auto i = std::find_if(inputs.begin(), inputs.end(), [&h](const DeckLinkHandle &in) {
+            return h->sameInput(in.persistent_id, in.device_number);
+        });
+        if (i != inputs.end()) {
+            // listed again: keep its stream and the sources connected to it
+            i->stream = h->stream;
+            i->video_mode = h->video_mode;
+            i->connection = h->connection;
+            i->connected_sources = h->connected_sources;
+        }
+        else if (h->stream != nullptr || !h->connected_sources.empty())
+            // not listed anymore but still in use: its sources keep a reference to it
+            inputs.push_back(*h);
+    }
+    handles_.swap(inputs);
+    int num = static_cast<int>(handles_.size());
+    access_.unlock();
+
+    // done
+    bool first = false;
+    {
+        std::lock_guard<std::mutex> lock(initialization_mutex_);
+        first = !initialized_;
+        initialized_ = true;
+    }
+    initialization_.notify_all();
+    probing_ = false;
+
+    if (!plugin) {
+        if (first)
+            Log::Info("Blackmagic DeckLink GStreamer plugin not available.");
+    }
+    else
+        Log::Info("Found %d Blackmagic DeckLink video input(s).", num);
+}
+
+void DeckLink::waitInitialized()
+{
+    std::unique_lock<std::mutex> lock(initialization_mutex_);
+    // do not wait forever if the driver does not answer
+    initialization_.wait_for(lock, std::chrono::seconds(10), [this]{ return initialized_; });
+}
+
+std::vector< DeckLinkHandle >::iterator DeckLink::find(int64_t persistent_id, int device_number)
+{
+    return std::find_if(handles_.begin(), handles_.end(), [&](const DeckLinkHandle &h) {
+        return h.sameInput(persistent_id, device_number);
+    });
 }
 
 int DeckLink::numDevices()
 {
-    // Wait for initialization
-    while (!initialized_.load())
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    access_.lock();
-    int ret = static_cast<int>(handles_.size());
-    access_.unlock();
-
-    return ret;
+    std::lock_guard<std::mutex> lock(access_);
+    return static_cast<int>(handles_.size());
 }
 
-bool DeckLink::exists(int device_number)
+int DeckLink::index(int64_t persistent_id, int device_number)
 {
-    access_.lock();
-    bool found = false;
-    for (const auto& h : handles_) {
-        if (h.device_number == device_number) {
-            found = true;
-            break;
-        }
-    }
-    access_.unlock();
-    return found;
-}
-
-int DeckLink::index(int device_number)
-{
-    access_.lock();
-    int idx = -1;
-    for (size_t i = 0; i < handles_.size(); ++i) {
-        if (handles_[i].device_number == device_number) {
-            idx = static_cast<int>(i);
-            break;
-        }
-    }
-    access_.unlock();
-    return idx;
+    std::lock_guard<std::mutex> lock(access_);
+    auto h = find(persistent_id, device_number);
+    if (h == handles_.end())
+        return -1;
+    return static_cast<int>(std::distance(handles_.begin(), h));
 }
 
 std::string DeckLink::name(int index)
 {
-    std::string ret = "";
-    access_.lock();
+    std::lock_guard<std::mutex> lock(access_);
     if (index >= 0 && index < static_cast<int>(handles_.size()))
-        ret = handles_[index].name;
-    access_.unlock();
-    return ret;
-}
-
-std::string DeckLink::description(int index)
-{
-    std::string ret = "";
-    access_.lock();
-    if (index >= 0 && index < static_cast<int>(handles_.size()))
-        ret = handles_[index].pipeline;
-    access_.unlock();
-    return ret;
+        return handles_[index].name;
+    return "";
 }
 
 std::string DeckLink::properties(int index)
 {
-    std::string ret = "";
-    access_.lock();
+    std::lock_guard<std::mutex> lock(access_);
     if (index >= 0 && index < static_cast<int>(handles_.size()))
-        ret = handles_[index].properties;
-    access_.unlock();
-    return ret;
+        return handles_[index].properties;
+    return "";
 }
 
-// Helper struct for finding handles
-struct hasDeckLinkDeviceNumber
+int64_t DeckLink::persistentId(int index)
 {
-    inline bool operator()(const DeckLinkHandle &elem) const {
-       return (elem.device_number == _num);
-    }
-    explicit hasDeckLinkDeviceNumber(int num) : _num(num) { }
-private:
-    int _num;
-};
+    std::lock_guard<std::mutex> lock(access_);
+    if (index >= 0 && index < static_cast<int>(handles_.size()))
+        return handles_[index].persistent_id;
+    return -1;
+}
 
-struct hasDeckLinkConnectedSource
+int DeckLink::deviceNumber(int index)
 {
-    inline bool operator()(const DeckLinkHandle &elem) const {
-        auto sit = std::find(elem.connected_sources.begin(), elem.connected_sources.end(), s_);
-        return sit != elem.connected_sources.end();
-    }
-    explicit hasDeckLinkConnectedSource(DeckLinkSource *s) : s_(s) { }
-private:
-    DeckLinkSource *s_;
-};
+    std::lock_guard<std::mutex> lock(access_);
+    if (index >= 0 && index < static_cast<int>(handles_.size()))
+        return handles_[index].device_number;
+    return -1;
+}
 
+//
+// DeckLink source
+//
 DeckLinkSource::DeckLinkSource(uint64_t id) : StreamSource(id),
-    device_number_(-1), mode_number_(16), connection_(0), unplugged_(false)
+    persistent_id_(-1), device_number_(-1),
+    video_mode_(DeckLink::default_mode), connection_(DeckLink::default_connection),
+    unplugged_(false)
 {
     // set symbol
     symbol_ = new Symbol(Symbol::TELEVISION, glm::vec3(0.75f, 0.75f, 0.01f));
@@ -341,140 +380,182 @@ DeckLinkSource::~DeckLinkSource()
 
 void DeckLinkSource::unsetDevice()
 {
-    // lock before accessing handles_
-    DeckLink::manager().access_.lock();
+    std::lock_guard<std::mutex> lock(DeckLink::manager().access_);
 
-    // unregister this source from a DeckLink handler
-    auto h = std::find_if(DeckLink::manager().handles_.begin(),
-                          DeckLink::manager().handles_.end(),
-                          hasDeckLinkConnectedSource(this));
-    if (h != DeckLink::manager().handles_.end())
-    {
-        // remove this pointer from the list of connected sources
-        h->connected_sources.remove(this);
-        // if this is the last source connected to the device handler
-        // the stream will be removed by the ~StreamSource destructor
-        // and the device handler should not keep reference to it
-        if (h->connected_sources.empty())
-            // cancel the reference to the stream
-            h->stream = nullptr;
+    // unregister this source from the input it is connected to
+    for (auto &h : DeckLink::manager().handles_) {
+        auto sit = std::find(h.connected_sources.begin(), h.connected_sources.end(), this);
+        if (sit == h.connected_sources.end())
+            continue;
+
+        h.connected_sources.erase(sit);
+        if (h.connected_sources.empty())
+            // this was the last source: its stream is deleted with it
+            // (by ~StreamSource) and the input should not keep a reference to it
+            h.stream = nullptr;
         else
-        // else this means another DeckLinkSource is using this stream
-        // and we should avoid to delete the stream in the ~StreamSource destructor
+            // other sources still use this stream:
+            // avoid deleting it in the ~StreamSource destructor
             stream_ = nullptr;
+        break;
     }
-
-    // unlock before changing device number
-    DeckLink::manager().access_.unlock();
-
-    device_number_ = -1;
 }
 
 void DeckLinkSource::reconnect()
 {
     // remember settings
-    int d = device_number_;
-    int m = mode_number_;
-    int c = connection_;
+    int64_t pid = persistent_id_;
+    int number = device_number_;
+    std::string mode = video_mode_;
+    std::string connection = connection_;
     // disconnect
     unsetDevice();
+    if (stream_) {
+        delete stream_;
+        stream_ = nullptr;
+    }
     // connect
-    setDevice(d, m, c);
+    setDevice(pid, number, mode, connection);
 }
 
 std::string DeckLinkSource::deviceName() const
 {
-    int idx = DeckLink::manager().index(device_number_);
-    if (idx >= 0)
-        return DeckLink::manager().name(idx);
+    int i = DeckLink::manager().index(persistent_id_, device_number_);
+    if (i >= 0)
+        return DeckLink::manager().name(i);
     return "DeckLink " + std::to_string(device_number_);
 }
 
-void DeckLinkSource::setDevice(int device_number, int mode_number, int connection)
+int DeckLinkSource::sharingSources() const
 {
-    if (device_number_ == device_number && mode_number_ == mode_number && connection_ == connection)
+    std::lock_guard<std::mutex> lock(DeckLink::manager().access_);
+    for (const auto &h : DeckLink::manager().handles_) {
+        if (std::find(h.connected_sources.begin(), h.connected_sources.end(), this) != h.connected_sources.end())
+            return static_cast<int>(h.connected_sources.size()) - 1;
+    }
+    return 0;
+}
+
+void DeckLinkSource::setDevice(int64_t persistent_id, int device_number,
+                               const std::string &video_mode, const std::string &connection)
+{
+    // validate settings
+    std::string mode = video_mode;
+    if (DeckLink::modeIndex(mode) < 0) {
+        Log::Warning("Unknown DeckLink video mode '%s', using %s.", video_mode.c_str(), DeckLink::default_mode);
+        mode = DeckLink::default_mode;
+    }
+    std::string conn = connection;
+    if (DeckLink::connectionIndex(conn) < 0)
+        conn = DeckLink::default_connection;
+
+    // nothing to do if already capturing this input with these settings
+    if (stream_ != nullptr && !unplugged_ && persistent_id == persistent_id_
+        && device_number == device_number_ && mode == video_mode_ && conn == connection_)
         return;
 
-    // if changing device
-    if (device_number_ >= 0)
-        unsetDevice();
+    // wait for the first listing of inputs
+    DeckLink::manager().waitInitialized();
 
-    // if the stream referenced in this source remains after unsetDevice
+    // leave the current input
+    unsetDevice();
+
+    // if the stream referenced in this source remains after unsetDevice, no other source uses it
     if (stream_) {
         delete stream_;
         stream_ = nullptr;
     }
 
-    // set new device settings
+    // set new settings
+    persistent_id_ = persistent_id;
     device_number_ = device_number;
-    mode_number_ = mode_number;
-    connection_ = connection;
+    video_mode_ = mode;
+    connection_ = conn;
+    unplugged_ = false;
 
-    // lock before accessing handles_
-    DeckLink::manager().access_.lock();
+    std::lock_guard<std::mutex> lock(DeckLink::manager().access_);
 
-    // find the device handle
-    auto h = std::find_if(DeckLink::manager().handles_.begin(),
-                          DeckLink::manager().handles_.end(),
-                          hasDeckLinkDeviceNumber(device_number_));
+    auto h = DeckLink::manager().find(persistent_id_, device_number_);
+    if (h == DeckLink::manager().handles_.end()) {
+        unplugged_ = true;
+        if (persistent_id_ >= 0)
+            Log::Warning("No DeckLink input with persistent id %lld.", (long long) persistent_id_);
+        else
+            Log::Warning("No DeckLink input number %d.", device_number_);
+        return;
+    }
 
-    // found a device handle
-    if (h != DeckLink::manager().handles_.end()) {
+    // keep the identity of the input up to date (device numbers depend on detection order)
+    persistent_id_ = h->persistent_id;
+    device_number_ = h->device_number;
 
-        // find if a DeckLinkHandle with this device already has a stream that is open
-        if (h->stream != nullptr) {
-            // just use it!
-            stream_ = h->stream;
-            // reinit to adapt to new stream
-            init();
+    if (h->stream != nullptr) {
+        // the input is already captured by other sources;
+        // one input carries one signal: use the same settings
+        if (h->video_mode != video_mode_ || h->connection != connection_) {
+            Log::Notify("DeckLink '%s' is already captured in %s (%s); the new source uses the same settings.",
+                        h->name.c_str(),
+                        DeckLink::modeLabel(h->video_mode).c_str(),
+                        DeckLink::connectionLabel(h->connection).c_str());
+            video_mode_ = h->video_mode;
+            connection_ = h->connection;
         }
-        else {
-            // Get mode information
-            DeckLinkMode m = DeckLink::mode(mode_number_);
+        // share the stream
+        stream_ = h->stream;
+        // reinit to adapt to new stream
+        init();
+    }
+    else {
+        DeckLinkMode m = DeckLink::mode( DeckLink::modeIndex(video_mode_) );
 
-            // Build GStreamer pipeline using string mode name
-            std::ostringstream pipeline;
-            pipeline << "decklinkvideosrc device-number=" << device_number_;
-            pipeline << " mode=" << m.gst_mode;
-            pipeline << " connection=" << connection_;
-            pipeline << " ! video/x-raw,format=UYVY,width=" << m.width;
-            pipeline << ",height=" << m.height;
-            pipeline << ",framerate=" << m.fps_numerator << "/" << m.fps_denominator;
+        // GStreamer pipeline; the persistent id has priority over the device number
+        std::ostringstream pipeline;
+        pipeline << "decklinkvideosrc";
+        if (h->persistent_id >= 0)
+            pipeline << " persistent-id=" << h->persistent_id;
+        else
+            pipeline << " device-number=" << h->device_number;
+        pipeline << " mode=" << m.gst_name;
+        pipeline << " connection=" << connection_;
+        pipeline << " ! video/x-raw,format=UYVY";
+        pipeline << ",width=" << m.width;
+        pipeline << ",height=" << m.height;
+        pipeline << ",framerate=" << m.fps_numerator << "/" << m.fps_denominator;
+
+        // always convert; on GPU if GLMemory can be used
+        bool glmemory = Stream::glMemoryAvailable();
+        if (glmemory)
+            pipeline << " ! queue ! glupload ! glcolorconvert";
+        else
             pipeline << " ! queue ! videoconvert";
 
 #ifdef DECKLINK_DEBUG
-            Log::Info("DeckLink pipeline: %s", pipeline.str().c_str());
+        Log::Info("DeckLink pipeline: %s", pipeline.str().c_str());
 #endif
 
-            // delete and reset render buffer to enforce re-init of StreamSource
-            if (renderbuffer_)
-                delete renderbuffer_;
-            renderbuffer_ = nullptr;
+        // delete and reset render buffer to enforce re-init of StreamSource
+        if (renderbuffer_)
+            delete renderbuffer_;
+        renderbuffer_ = nullptr;
 
-            // new stream
-            stream_ = h->stream = new Stream;
+        // new stream
+        stream_ = h->stream = new Stream;
+        h->video_mode = video_mode_;
+        h->connection = connection_;
 
-            // open gstreamer
-            h->stream->open(pipeline.str(), m.width, m.height);
-            h->stream->play(true);
+        // open gstreamer
+        h->stream->open(pipeline.str(), m.width, m.height, glmemory);
+        h->stream->play(true);
 
-            Log::Info("DeckLink %d opened with mode %s (%dx%d)",
-                      device_number_, m.name.c_str(), m.width, m.height);
-        }
-
-        // reference this source in the handle
-        h->connected_sources.push_back(this);
-
-        // will be ready after init and one frame rendered
-        ready_ = false;
-    }
-    else {
-        unplugged_ = true;
-        Log::Warning("No DeckLink device number %d", device_number_);
+        Log::Info("DeckLink '%s' opened in %s (%s).", h->name.c_str(), m.label.c_str(),
+                  DeckLink::connectionLabel(connection_).c_str());
     }
 
-    // unlock after accessing handles_
-    DeckLink::manager().access_.unlock();
+    // reference this source in the input
+    h->connected_sources.push_back(this);
+
+    // will be ready after init and one frame rendered
+    ready_ = false;
 }
 
 void DeckLinkSource::setActive(bool on)
@@ -484,33 +565,28 @@ void DeckLinkSource::setActive(bool on)
     // try to activate (may fail if source is cloned)
     Source::setActive(on);
 
-    if (stream_) {
-        // change status of stream (only if status changed)
-        if (active_ != was_active) {
+    // change status of stream (only if status changed)
+    if (stream_ && active_ != was_active) {
 
-            // lock before accessing handles_
-            DeckLink::manager().access_.lock();
+        std::lock_guard<std::mutex> lock(DeckLink::manager().access_);
 
-            // activate a source if any of the handled device source is active
-            auto h = std::find_if(DeckLink::manager().handles_.begin(),
-                                  DeckLink::manager().handles_.end(),
-                                  hasDeckLinkConnectedSource(this));
-            if (h != DeckLink::manager().handles_.end()) {
-                bool streamactive = false;
-                for (auto sit = h->connected_sources.begin(); sit != h->connected_sources.end(); ++sit) {
-                    if ((*sit)->active_)
-                        streamactive = true;
-                }
+        // the stream is active if any of the sources of the input is active
+        for (const auto &h : DeckLink::manager().handles_) {
+            if (std::find(h.connected_sources.begin(), h.connected_sources.end(), this) == h.connected_sources.end())
+                continue;
 
-                // option to automatically replay when the source is disabled
-                if (streamactive && replay_on_disable_)
-                    stream_->rewind();
-
-                stream_->enable(streamactive);
+            bool streamactive = false;
+            for (auto sit = h.connected_sources.begin(); sit != h.connected_sources.end(); ++sit) {
+                if ((*sit)->active_)
+                    streamactive = true;
             }
 
-            // unlock after accessing handles_
-            DeckLink::manager().access_.unlock();
+            // option to automatically replay when the source is disabled
+            if (streamactive && replay_on_disable_)
+                stream_->rewind();
+
+            stream_->enable(streamactive);
+            break;
         }
     }
 }
